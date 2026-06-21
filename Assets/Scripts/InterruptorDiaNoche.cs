@@ -1,58 +1,134 @@
+using System.Collections;
 using UnityEngine;
 
-public class InterruptorDiaNoche : MonoBehaviour
+public class InterruptorTormenta : MonoBehaviour
 {
-    [Header("Detección del jugador")]
-    public Transform camaraJugador;
-    public float distanciaInteraccion = 2.5f;
+    private bool jugadorCerca = false;
+    private bool lucesEncendidas = true; // empieza encendida
 
-    [Header("Iluminación")]
-    public Light luzSol;              // Directional Light
-    public Color colorDia = Color.white;
-    public Color colorNoche = new Color(0.1f, 0.1f, 0.2f);
-    public float intensidadDia = 1f;
-    public float intensidadNoche = 0.05f;
-    public Light luzNocturna;         // Lámpara/veladora, apagada de día
+    [Header("Luces del cuarto")]
+    public Light[] lucesHabitacion; // arrastra aquí todas tus lámparas/Point Lights
 
-    [Header("Lluvia y truenos")]
-    public ParticleSystem lluvia;
+    [Header("Lluvia")]
+    public GameObject lluviaParticulas;
     public AudioSource sonidoLluvia;
-    public TruenoController truenos;  // script aparte para el rayo/flash + sonido
 
-    private bool esDeNoche = false;
+    [Header("Truenos")]
+    public AudioSource sonidoTrueno;
+    public AudioClip[] cliposTrueno;
+    public Light luzFlash;
+    private Coroutine rutinaTruenos;
+
+    [Header("Puerta - Golpes")]
+    public Transform puerta;              // arrastra el Transform de la puerta (el que rota/bisagra)
+    public AudioSource sonidoGolpes;      // el AudioSource de golpes que creaste
+    public AudioClip[] cliposGolpes;      // uno o varios clips de golpes
+    private Coroutine rutinaGolpes;
+
+    void OnTriggerEnter(Collider other)
+    {
+        if (other.CompareTag("Player"))
+            jugadorCerca = true;
+    }
+
+    void OnTriggerExit(Collider other)
+    {
+        if (other.CompareTag("Player"))
+            jugadorCerca = false;
+    }
 
     void Update()
     {
-        if (EstaJugadorCerca() && Input.GetKeyDown(KeyCode.E))
+        if (jugadorCerca && Input.GetKeyDown(KeyCode.E))
         {
             CambiarEstado();
         }
     }
 
-    bool EstaJugadorCerca()
-    {
-        return Vector3.Distance(camaraJugador.position, transform.position) <= distanciaInteraccion;
-    }
-
     void CambiarEstado()
     {
-        esDeNoche = !esDeNoche;
+        lucesEncendidas = !lucesEncendidas;
 
-        luzSol.color = esDeNoche ? colorNoche : colorDia;
-        luzSol.intensity = esDeNoche ? intensidadNoche : intensidadDia;
-        luzNocturna.enabled = esDeNoche;
-
-        if (esDeNoche)
+        foreach (Light luz in lucesHabitacion)
         {
-            lluvia.Play();
+            luz.enabled = lucesEncendidas;
+        }
+
+        RenderSettings.ambientIntensity = lucesEncendidas ? 1f : 0.05f;
+
+        if (!lucesEncendidas)
+        {
+            // se apagó la luz -> empieza la tormenta
+            lluviaParticulas.SetActive(true);
             sonidoLluvia.Play();
-            truenos.IniciarTormenta();
+            rutinaTruenos = StartCoroutine(CicloTruenos());
+            rutinaGolpes = StartCoroutine(CicloGolpesPuerta());
         }
         else
         {
-            lluvia.Stop();
+            // se volvió a encender -> para la tormenta
+            lluviaParticulas.SetActive(false);
             sonidoLluvia.Stop();
-            truenos.DetenerTormenta();
+            if (rutinaTruenos != null) StopCoroutine(rutinaTruenos);
+            if (rutinaGolpes != null) StopCoroutine(rutinaGolpes);
+            if (luzFlash != null) luzFlash.enabled = false;
+        }
+    }
+
+    IEnumerator CicloTruenos()
+    {
+        while (true)
+        {
+            yield return new WaitForSeconds(Random.Range(4f, 12f));
+
+            if (luzFlash != null)
+            {
+                luzFlash.enabled = true;
+                luzFlash.intensity = Random.Range(3f, 6f);
+            }
+            if (cliposTrueno.Length > 0)
+            {
+                sonidoTrueno.clip = cliposTrueno[Random.Range(0, cliposTrueno.Length)];
+                sonidoTrueno.pitch = Random.Range(0.9f, 1.1f);
+                sonidoTrueno.Play();
+            }
+
+            yield return new WaitForSeconds(0.15f);
+            if (luzFlash != null) luzFlash.enabled = false;
+        }
+    }
+
+    IEnumerator CicloGolpesPuerta()
+    {
+        while (true)
+        {
+            yield return new WaitForSeconds(Random.Range(6f, 15f));
+
+            if (cliposGolpes.Length > 0)
+            {
+                sonidoGolpes.clip = cliposGolpes[Random.Range(0, cliposGolpes.Length)];
+                sonidoGolpes.pitch = Random.Range(0.95f, 1.05f);
+                sonidoGolpes.Play();
+            }
+
+            if (puerta != null)
+            {
+                yield return StartCoroutine(SacudirPuerta());
+            }
+        }
+    }
+
+    IEnumerator SacudirPuerta()
+    {
+        Vector3 rotacionOriginal = puerta.localEulerAngles;
+        int golpes = Random.Range(3, 6); // cantidad de golpes en esta tanda
+
+        for (int i = 0; i < golpes; i++)
+        {
+            puerta.localEulerAngles = rotacionOriginal + new Vector3(0, Random.Range(2f, 5f), 0);
+            yield return new WaitForSeconds(0.08f);
+            puerta.localEulerAngles = rotacionOriginal;
+            yield return new WaitForSeconds(0.12f);
         }
     }
 }
